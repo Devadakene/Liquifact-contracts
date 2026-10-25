@@ -14,7 +14,7 @@ fn setup_perf_fee_env<'a>(
     StellarAssetClient<'a>,
 ) {
     let sac = env.register_stellar_asset_contract_v2(Address::generate(env));
-    let token_id = sac.address.clone();
+    let token_id = sac.address();
     let sac_client = StellarAssetClient::new(env, &token_id);
 
     let escrow_id = env.register(LiquifactEscrow, ());
