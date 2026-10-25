@@ -107,7 +107,7 @@ fn test_set_performance_fee_locked_after_funding() {
     // After partial funding (funded_amount > 0), setter must fail
     assert_contract_error(
         client.try_set_performance_fee_bps(&1_000),
-        EscrowError::StatusNotZero,
+        EscrowError::PerformanceFeeUpdateNotOpen,
     );
 }
 

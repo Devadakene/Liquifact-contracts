@@ -1077,6 +1077,9 @@ pub enum EscrowError {
     LegalHoldAlreadyActive = 300,
     /// [`LiquifactEscrow::set_performance_fee_bps`] received a fee outside `0..=5_000`.
     PerformanceFeeBpsOutOfRange = 301,
+    /// [`LiquifactEscrow::set_performance_fee_bps`] called after funding began
+    /// (`status != 0` or `funded_amount > 0`). The fee is fixed once investors commit capital.
+    PerformanceFeeUpdateNotOpen = 302,
 }
 
 #[inline(always)]
@@ -4237,8 +4240,16 @@ impl LiquifactEscrow {
     pub fn set_performance_fee_bps(env: Env, bps: u32) -> u32 {
         let escrow = Self::load_escrow_require_admin(&env);
 
-        ensure(&env, escrow.status == 0, EscrowError::StatusNotZero);
-        ensure(&env, escrow.funded_amount == 0, EscrowError::StatusNotZero);
+        ensure(
+            &env,
+            escrow.status == 0,
+            EscrowError::PerformanceFeeUpdateNotOpen,
+        );
+        ensure(
+            &env,
+            escrow.funded_amount == 0,
+            EscrowError::PerformanceFeeUpdateNotOpen,
+        );
         ensure(&env, bps <= 5_000, EscrowError::PerformanceFeeBpsOutOfRange);
 
         let old_fee_bps: u32 = env
