@@ -14,7 +14,7 @@ fn setup_perf_fee_env<'a>(
     StellarAssetClient<'a>,
 ) {
     let sac = env.register_stellar_asset_contract_v2(Address::generate(env));
-    let token_id = sac.address();
+    let token_id = sac.address.clone();
     let sac_client = StellarAssetClient::new(env, &token_id);
 
     let escrow_id = env.register(LiquifactEscrow, ());
@@ -60,22 +60,22 @@ fn test_set_performance_fee_bps_success_and_event() {
     env.mock_all_auths();
     let (client, admin, _, _, _, _) = setup_perf_fee_env(&env, 1_000_000, 800);
 
+    let invoice_id = client.get_escrow().invoice_id;
     let res = client.set_performance_fee_bps(&1_000);
+
+    // Verify PerformanceFeeUpdated event (read before any further invocation).
+    let expected = PerformanceFeeUpdated {
+        name: symbol_short!("perf_upd"),
+        invoice_id,
+        old_fee_bps: 0,
+        new_fee_bps: 1_000,
+    }
+    .to_xdr(&env, &client.address);
+    let found = env.events().all().events().iter().any(|e| *e == expected);
+    assert!(found, "PerformanceFeeUpdated event was not found");
+
     assert_eq!(res, 1_000);
     assert_eq!(client.get_performance_fee_bps(), 1_000);
-
-    // Verify PerformanceFeeUpdated event
-    let events = env.events().all();
-    let mut found = false;
-    for event in events.iter() {
-        if let Ok(fee_event) = PerformanceFeeUpdated::try_from(event) {
-            if fee_event.new_fee_bps == 1_000 && fee_event.old_fee_bps == 0 {
-                found = true;
-                break;
-            }
-        }
-    }
-    assert!(found, "PerformanceFeeUpdated event was not found");
 }
 
 #[test]
@@ -144,14 +144,30 @@ fn test_conservation_and_balance_deltas() {
     assert_eq!(preview_fee, 20_000);
     assert_eq!(preview_net, 1_080_000);
 
-    let token_id = sac.address();
+    let token_id = sac.address.clone();
     let token_client = TokenClient::new(&env, &token_id);
 
     let inv_balance_before = token_client.balance(&investor);
     let treasury_balance_before = token_client.balance(&treasury);
     let contract_balance_before = token_client.balance(&escrow_id);
 
+    let invoice_id = client.get_escrow().invoice_id;
     client.claim_investor_payout(&investor);
+
+    // Capture the claim's events before any further invocation.
+    let expected_collected = PerformanceFeeCollected {
+        name: symbol_short!("perf_fee"),
+        investor: investor.clone(),
+        invoice_id,
+        fee: preview_fee,
+    }
+    .to_xdr(&env, &client.address);
+    let fee_event_found = env
+        .events()
+        .all()
+        .events()
+        .iter()
+        .any(|e| *e == expected_collected);
 
     let inv_balance_after = token_client.balance(&investor);
     let treasury_balance_after = token_client.balance(&treasury);
@@ -169,16 +185,6 @@ fn test_conservation_and_balance_deltas() {
     assert_eq!(preview_net + preview_fee, gross_payout);
 
     // Verify PerformanceFeeCollected event emitted
-    let events = env.events().all();
-    let mut fee_event_found = false;
-    for event in events.iter() {
-        if let Ok(collected) = PerformanceFeeCollected::try_from(event) {
-            if collected.investor == investor && collected.fee == preview_fee {
-                fee_event_found = true;
-                break;
-            }
-        }
-    }
     assert!(fee_event_found, "PerformanceFeeCollected event not found");
 }
 
@@ -206,7 +212,7 @@ fn test_fee_never_touches_principal_zero_yield() {
     assert_eq!(net, target);
     assert_eq!(client.get_claimable_payout(&investor), target);
 
-    let token_id = sac.address();
+    let token_id = sac.address.clone();
     let token_client = TokenClient::new(&env, &token_id);
     let treasury_before = token_client.balance(&treasury);
 
@@ -252,7 +258,7 @@ fn test_multiple_investors_split() {
     client.claim_investor_payout(&inv1);
     client.claim_investor_payout(&inv2);
 
-    let token_id = sac.address();
+    let token_id = sac.address.clone();
     let token_client = TokenClient::new(&env, &token_id);
     assert_eq!(token_client.balance(&treasury), 50_000);
     assert_eq!(token_client.balance(&inv1), 1_075_000);
